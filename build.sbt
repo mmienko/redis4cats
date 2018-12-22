@@ -7,7 +7,7 @@ name := """fs2-redis-root"""
 
 organization in ThisBuild := "com.github.gvolpe"
 
-crossScalaVersions in ThisBuild := Seq("2.12.7")
+crossScalaVersions in ThisBuild := Seq("2.12.7", "2.13.0-M5")
 
 sonatypeProfileName := "com.github.gvolpe"
 
@@ -27,7 +27,7 @@ val commonSettings = Seq(
     compilerPlugin(Libraries.betterMonadicFor),
     Libraries.redisClient,
     Libraries.catsEffect,
-    Libraries.scribe,
+//    Libraries.log4cats,
     Libraries.scalaTest % Test,
     Libraries.scalaCheck % Test
   ),
@@ -95,6 +95,8 @@ lazy val `fs2-redis-streams` = project.in(file("streams"))
 lazy val examples = project.in(file("examples"))
   .settings(commonSettings: _*)
   .settings(noPublish)
+//  .settings(libraryDependencies += Libraries.log4catsSlf4j)
+//  .settings(libraryDependencies += Libraries.logback % "runtime")
   .enablePlugins(AutomateHeaderPlugin)
   .dependsOn(`fs2-redis-effects`)
   .dependsOn(`fs2-redis-streams`)

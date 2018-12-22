@@ -16,19 +16,20 @@
 
 package com.github.gvolpe.fs2redis
 
-import cats.effect.{ ExitCode, IO, IOApp, Resource }
+import cats.effect._
 import cats.syntax.all._
 import com.github.gvolpe.fs2redis.algebra.GeoCommands
 import com.github.gvolpe.fs2redis.connection.Fs2RedisClient
 import com.github.gvolpe.fs2redis.interpreter.Fs2Redis
 import com.github.gvolpe.fs2redis.effects._
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.lettuce.core.GeoArgs
 
 object Fs2RedisGeoDemo extends IOApp {
 
   import Demo._
 
-  override def run(args: List[String]): IO[ExitCode] = {
+  val program: IO[Unit] = Slf4jLogger.create[IO].flatMap { implicit logger =>
     val testKey = "location"
 
     val commandsApi: Resource[IO, GeoCommands[IO, String, String]] =
@@ -55,7 +56,10 @@ object Fs2RedisGeoDemo extends IOApp {
         z <- cmd.geoRadius(testKey, GeoRadius(_Montevideo.lon, _Montevideo.lat, Distance(10000.0)), GeoArgs.Unit.km)
         _ <- putStrLn(s"Geo Radius in 1000 km: $z")
       } yield ()
-    } *> IO.pure(ExitCode.Success)
+    }
   }
+
+  override def run(args: List[String]): IO[ExitCode] =
+    program.as(ExitCode.Success)
 
 }

@@ -23,14 +23,15 @@ import cats.syntax.all._
 import com.github.gvolpe.fs2redis.algebra.Streaming
 import com.github.gvolpe.fs2redis.connection.Fs2RedisMasterSlave
 import com.github.gvolpe.fs2redis.domain._
-import com.github.gvolpe.fs2redis.effect.{ JRFuture, Log }
+import com.github.gvolpe.fs2redis.effect.JRFuture
 import com.github.gvolpe.fs2redis.streams._
 import fs2.Stream
+import io.chrisdavenport.log4cats.Logger
 import io.lettuce.core.{ ReadFrom, RedisURI }
 
 object Fs2Streaming {
 
-  def mkStreamingConnection[F[_]: Concurrent: Log, K, V](
+  def mkStreamingConnection[F[_]: Concurrent: Logger, K, V](
       client: Fs2RedisClient,
       codec: Fs2RedisCodec[K, V],
       uri: RedisURI
@@ -43,12 +44,12 @@ object Fs2Streaming {
 
     val release: Fs2RawStreaming[F, K, V] => F[Unit] = c =>
       JRFuture.fromCompletableFuture(Sync[F].delay(c.client.closeAsync())) *>
-        Log[F].info(s"Releasing Streaming connection: $uri")
+        Logger[F].info(s"Releasing Streaming connection: $uri")
 
     Stream.bracket(acquire)(release).map(rs => new Fs2Streaming(rs))
   }
 
-  def mkMasterSlaveConnection[F[_]: Concurrent: Log, K, V](codec: Fs2RedisCodec[K, V], uris: RedisURI*)(
+  def mkMasterSlaveConnection[F[_]: Concurrent: Logger, K, V](codec: Fs2RedisCodec[K, V], uris: RedisURI*)(
       readFrom: Option[ReadFrom] = None
   ): Stream[F, Streaming[Stream[F, ?], K, V]] =
     Stream.resource(Fs2RedisMasterSlave[F, K, V](codec, uris: _*)(readFrom)).map { conn =>

@@ -19,7 +19,8 @@ package com.github.gvolpe.fs2redis.connection
 import cats.implicits._
 import cats.effect.{ Concurrent, Resource, Sync }
 import com.github.gvolpe.fs2redis.domain.{ DefaultRedisClusterClient, Fs2RedisClusterClient }
-import com.github.gvolpe.fs2redis.effect.{ JRFuture, Log }
+import com.github.gvolpe.fs2redis.effect.JRFuture
+import io.chrisdavenport.log4cats.Logger
 import io.lettuce.core.RedisURI
 import io.lettuce.core.cluster.RedisClusterClient
 
@@ -27,31 +28,31 @@ import scala.collection.JavaConverters._
 
 object Fs2RedisClusterClient {
 
-  private[fs2redis] def acquireAndRelease[F[_]: Concurrent: Log](
+  private[fs2redis] def acquireAndRelease[F[_]: Concurrent: Logger](
       uri: RedisURI*
   ): (F[Fs2RedisClusterClient], Fs2RedisClusterClient => F[Unit]) = {
 
     val acquire: F[Fs2RedisClusterClient] =
-      Log[F].info(s"Acquire Redis Cluster client") *>
+      Logger[F].info(s"Acquire Redis Cluster client") *>
         Sync[F]
           .delay(RedisClusterClient.create(uri.asJava))
           .flatTap(initializeClusterPartitions[F])
           .map(DefaultRedisClusterClient)
 
     val release: Fs2RedisClusterClient => F[Unit] = client =>
-      Log[F].info(s"Releasing Redis Cluster client: ${client.underlying}") *>
+      Logger[F].info(s"Releasing Redis Cluster client: ${client.underlying}") *>
         JRFuture.fromCompletableFuture(Sync[F].delay(client.underlying.shutdownAsync())).void
 
     (acquire, release)
   }
 
-  private[fs2redis] def acquireAndReleaseWithoutUri[F[_]: Concurrent: Log]
+  private[fs2redis] def acquireAndReleaseWithoutUri[F[_]: Concurrent: Logger]
     : (F[Fs2RedisClusterClient], Fs2RedisClusterClient => F[Unit]) = acquireAndRelease(new RedisURI())
 
   private[fs2redis] def initializeClusterPartitions[F[_]: Sync](client: RedisClusterClient): F[Unit] =
     Sync[F].delay(client.getPartitions)
 
-  def apply[F[_]: Concurrent: Log](uri: RedisURI*): Resource[F, Fs2RedisClusterClient] = {
+  def apply[F[_]: Concurrent: Logger](uri: RedisURI*): Resource[F, Fs2RedisClusterClient] = {
     val (acquire, release) = acquireAndRelease(uri: _*)
     Resource.make(acquire)(release)
   }

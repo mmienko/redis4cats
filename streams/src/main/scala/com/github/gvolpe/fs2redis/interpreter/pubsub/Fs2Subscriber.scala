@@ -25,9 +25,10 @@ import com.github.gvolpe.fs2redis.domain.Fs2RedisChannel
 import com.github.gvolpe.fs2redis.effect.JRFuture
 import fs2.Stream
 import fs2.concurrent.Topic
+import io.chrisdavenport.log4cats.Logger
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
 
-class Fs2Subscriber[F[_]: ConcurrentEffect, K, V](
+class Fs2Subscriber[F[_]: ConcurrentEffect: Logger, K, V](
     state: Ref[F, PubSubState[F, K, V]],
     subConnection: StatefulRedisPubSubConnection[K, V]
 ) extends SubscribeCommands[Stream[F, ?], K, V] {

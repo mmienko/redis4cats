@@ -23,6 +23,7 @@ import com.github.gvolpe.fs2redis.connection.Fs2RedisClient
 import com.github.gvolpe.fs2redis.interpreter.streams.Fs2Streaming
 import com.github.gvolpe.fs2redis.streams.StreamingMessage
 import fs2.Stream
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 
 import scala.concurrent.duration._
 import scala.util.Random
@@ -44,16 +45,18 @@ object Fs2StreamingDemo extends IOApp {
   }
 
   def stream(args: List[String]): Stream[IO, Unit] =
-    for {
-      client <- Stream.resource(Fs2RedisClient[IO](redisURI))
-      streaming <- Fs2Streaming.mkStreamingConnection[IO, String, String](client, stringCodec, redisURI)
-      source   = streaming.read(Set(streamKey1, streamKey2))
-      appender = streaming.append
-      _ <- Stream(
-            source.evalMap(x => putStrLn(x.toString)),
-            Stream.awakeEvery[IO](3.seconds) >> randomMessage.to(appender)
-          ).parJoin(2).drain
-    } yield ()
+    Stream.eval(Slf4jLogger.create[IO]).flatMap { implicit logger =>
+      for {
+        client <- Stream.resource(Fs2RedisClient[IO](redisURI))
+        streaming <- Fs2Streaming.mkStreamingConnection[IO, String, String](client, stringCodec, redisURI)
+        source   = streaming.read(Set(streamKey1, streamKey2))
+        appender = streaming.append
+        _ <- Stream(
+              source.evalMap(x => putStrLn(x.toString)),
+              Stream.awakeEvery[IO](3.seconds) >> randomMessage.to(appender)
+            ).parJoin(2).drain
+      } yield ()
+    }
 
   override def run(args: List[String]): IO[ExitCode] =
     stream(args).compile.drain *> IO.pure(ExitCode.Success)

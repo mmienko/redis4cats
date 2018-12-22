@@ -16,13 +16,14 @@
 
 package com.github.gvolpe.fs2redis.interpreter.pubsub.internals
 
-import cats.effect.ConcurrentEffect
+import cats.Applicative
+import cats.effect.{ ConcurrentEffect, Sync }
 import cats.effect.concurrent.Ref
 import cats.effect.syntax.effect._
 import cats.syntax.all._
 import com.github.gvolpe.fs2redis.domain.Fs2RedisChannel
-import com.github.gvolpe.fs2redis.effect.Log
 import fs2.concurrent.Topic
+import io.chrisdavenport.log4cats.Logger
 import io.lettuce.core.pubsub.{ RedisPubSubListener, StatefulRedisPubSubConnection }
 
 object Fs2PubSubInternals {
@@ -43,20 +44,20 @@ object Fs2PubSubInternals {
       override def punsubscribed(pattern: K, count: Long): Unit      = ()
     }
 
-  private[fs2redis] def apply[F[_], K, V](
+  private[fs2redis] def apply[F[_]: ConcurrentEffect: Logger, K, V](
       state: Ref[F, PubSubState[F, K, V]],
       subConnection: StatefulRedisPubSubConnection[K, V]
-  )(implicit F: ConcurrentEffect[F], L: Log[F]): GetOrCreateTopicListener[F, K, V] = { channel => st =>
+  ): GetOrCreateTopicListener[F, K, V] = { channel => st =>
     st.get(channel.value)
       .fold {
         for {
           topic <- Topic[F, Option[V]](None)
           listener = defaultListener(channel, topic)
-          _ <- L.info(s"Creating listener for channel: $channel")
-          _ <- F.delay(subConnection.addListener(listener))
+          _ <- Logger[F].info(s"Creating listener for channel: $channel")
+          _ <- Sync[F].delay(subConnection.addListener(listener))
           _ <- state.update(_.updated(channel.value, topic))
         } yield topic
-      }(F.pure)
+      }(Applicative[F].pure)
   }
 
 }

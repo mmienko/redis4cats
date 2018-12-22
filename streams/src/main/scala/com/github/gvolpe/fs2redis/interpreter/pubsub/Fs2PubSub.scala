@@ -21,15 +21,16 @@ import cats.effect.concurrent.Ref
 import cats.syntax.all._
 import com.github.gvolpe.fs2redis.algebra.{ PubSubCommands, PublishCommands, SubscribeCommands }
 import com.github.gvolpe.fs2redis.domain._
-import com.github.gvolpe.fs2redis.effect.{ JRFuture, Log }
+import com.github.gvolpe.fs2redis.effect.JRFuture
 import fs2.Stream
 import fs2.concurrent.Topic
+import io.chrisdavenport.log4cats.Logger
 import io.lettuce.core.RedisURI
 import io.lettuce.core.pubsub.StatefulRedisPubSubConnection
 
 object Fs2PubSub {
 
-  private[fs2redis] def acquireAndRelease[F[_]: ConcurrentEffect: Log, K, V](
+  private[fs2redis] def acquireAndRelease[F[_]: ConcurrentEffect: Logger, K, V](
       client: Fs2RedisClient,
       codec: Fs2RedisCodec[K, V],
       uri: RedisURI
@@ -41,7 +42,7 @@ object Fs2PubSub {
 
     val release: StatefulRedisPubSubConnection[K, V] => F[Unit] = c =>
       JRFuture.fromCompletableFuture(Sync[F].delay(c.closeAsync())) *>
-        Log[F].info(s"Releasing PubSub connection: $uri")
+        Logger[F].info(s"Releasing PubSub connection: $uri")
 
     (acquire, release)
   }
@@ -51,7 +52,7 @@ object Fs2PubSub {
     *
     * Use this option whenever you need one or more subscribers or subscribers and publishers / stats.
     * */
-  def mkPubSubConnection[F[_]: ConcurrentEffect: Log, K, V](
+  def mkPubSubConnection[F[_]: ConcurrentEffect: Logger, K, V](
       client: Fs2RedisClient,
       codec: Fs2RedisCodec[K, V],
       uri: RedisURI
@@ -72,7 +73,7 @@ object Fs2PubSub {
     *
     * Use this option when you only need to publish and/or get stats such as number of subscriptions.
     * */
-  def mkPublisherConnection[F[_]: ConcurrentEffect: Log, K, V](
+  def mkPublisherConnection[F[_]: ConcurrentEffect: Logger, K, V](
       client: Fs2RedisClient,
       codec: Fs2RedisCodec[K, V],
       uri: RedisURI
@@ -86,7 +87,7 @@ object Fs2PubSub {
     *
     * Use this option when you only need to one or more subscribers but no publishing and / or stats.
     * */
-  def mkSubscriberConnection[F[_]: ConcurrentEffect: Log, K, V](
+  def mkSubscriberConnection[F[_]: ConcurrentEffect: Logger, K, V](
       client: Fs2RedisClient,
       codec: Fs2RedisCodec[K, V],
       uri: RedisURI

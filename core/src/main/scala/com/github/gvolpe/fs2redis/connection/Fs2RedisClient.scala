@@ -20,27 +20,28 @@ import cats.effect.{ Concurrent, Resource, Sync }
 import cats.syntax.apply._
 import cats.syntax.functor._
 import com.github.gvolpe.fs2redis.domain.{ DefaultRedisClient, Fs2RedisClient }
-import com.github.gvolpe.fs2redis.effect.{ JRFuture, Log }
+import com.github.gvolpe.fs2redis.effect.JRFuture
+import io.chrisdavenport.log4cats.Logger
 import io.lettuce.core.{ RedisClient, RedisURI }
 
 object Fs2RedisClient {
 
-  private[fs2redis] def acquireAndRelease[F[_]: Concurrent: Log](
+  private[fs2redis] def acquireAndRelease[F[_]: Concurrent: Logger](
       uri: RedisURI
   ): (F[Fs2RedisClient], Fs2RedisClient => F[Unit]) = {
     val acquire: F[Fs2RedisClient] = Sync[F].delay { DefaultRedisClient(RedisClient.create(uri)) }
 
     val release: Fs2RedisClient => F[Unit] = client =>
-      Log[F].info(s"Releasing Redis connection: $uri") *>
+      Logger[F].info(s"Releasing Redis connection: $uri") *>
         JRFuture.fromCompletableFuture(Sync[F].delay(client.underlying.shutdownAsync())).void
 
     (acquire, release)
   }
 
-  private[fs2redis] def acquireAndReleaseWithoutUri[F[_]: Concurrent: Log]
+  private[fs2redis] def acquireAndReleaseWithoutUri[F[_]: Concurrent: Logger]
     : (F[Fs2RedisClient], Fs2RedisClient => F[Unit]) = acquireAndRelease(new RedisURI())
 
-  def apply[F[_]: Concurrent: Log](uri: RedisURI): Resource[F, Fs2RedisClient] = {
+  def apply[F[_]: Concurrent: Logger](uri: RedisURI): Resource[F, Fs2RedisClient] = {
     val (acquire, release) = acquireAndRelease(uri)
     Resource.make(acquire)(release)
   }

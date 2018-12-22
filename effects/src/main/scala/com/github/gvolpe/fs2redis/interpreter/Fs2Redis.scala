@@ -22,9 +22,10 @@ import cats.effect.{ Concurrent, Resource, Sync }
 import com.github.gvolpe.fs2redis.algebra._
 import com.github.gvolpe.fs2redis.connection._
 import com.github.gvolpe.fs2redis.domain._
-import com.github.gvolpe.fs2redis.effect.{ JRFuture, Log }
+import com.github.gvolpe.fs2redis.effect.JRFuture
 import com.github.gvolpe.fs2redis.effects._
 import com.github.gvolpe.fs2redis.interpreter.Fs2Redis.RedisCommands
+import io.chrisdavenport.log4cats.Logger
 import io.lettuce.core._
 
 import scala.concurrent.duration.FiniteDuration
@@ -39,7 +40,7 @@ object Fs2Redis {
       with ListCommands[F, K, V]
       with GeoCommands[F, K, V]
 
-  private[fs2redis] def acquireAndRelease[F[_]: Concurrent: Log, K, V](
+  private[fs2redis] def acquireAndRelease[F[_]: Concurrent: Logger, K, V](
       client: Fs2RedisClient,
       codec: Fs2RedisCodec[K, V],
       uri: RedisURI
@@ -50,12 +51,13 @@ object Fs2Redis {
       }
       .map(c => new Fs2Redis(new Fs2RedisStatefulConnection(c)))
 
-    val release: Fs2Redis[F, K, V] => F[Unit] = c => Log[F].info(s"Releasing Commands connection: $uri") *> c.conn.close
+    val release: Fs2Redis[F, K, V] => F[Unit] = c =>
+      Logger[F].info(s"Releasing Commands connection: $uri") *> c.conn.close
 
     (acquire, release)
   }
 
-  private[fs2redis] def acquireAndReleaseCluster[F[_]: Concurrent: Log, K, V](
+  private[fs2redis] def acquireAndReleaseCluster[F[_]: Concurrent: Logger, K, V](
       client: Fs2RedisClusterClient,
       codec: Fs2RedisCodec[K, V],
   ): (F[Fs2RedisCluster[F, K, V]], Fs2RedisCluster[F, K, V] => F[Unit]) = {
@@ -66,12 +68,12 @@ object Fs2Redis {
       .map(c => new Fs2RedisCluster(new Fs2RedisStatefulClusterConnection(c)))
 
     val release: Fs2RedisCluster[F, K, V] => F[Unit] = c =>
-      Log[F].info(s"Releasing cluster Commands connection: ${client.underlying}") *> c.conn.close
+      Logger[F].info(s"Releasing cluster Commands connection: ${client.underlying}") *> c.conn.close
 
     (acquire, release)
   }
 
-  def apply[F[_]: Concurrent: Log, K, V](
+  def apply[F[_]: Concurrent: Logger, K, V](
       client: Fs2RedisClient,
       codec: Fs2RedisCodec[K, V],
       uri: RedisURI
@@ -80,7 +82,7 @@ object Fs2Redis {
     Resource.make(acquire)(release).map(_.asInstanceOf[RedisCommands[F, K, V]])
   }
 
-  def cluster[F[_]: Concurrent: Log, K, V](
+  def cluster[F[_]: Concurrent: Logger, K, V](
       clusterClient: Fs2RedisClusterClient,
       codec: Fs2RedisCodec[K, V],
       uri: RedisURI*
@@ -89,7 +91,9 @@ object Fs2Redis {
     Resource.make(acquire)(release).map(_.asInstanceOf[RedisCommands[F, K, V]])
   }
 
-  def masterSlave[F[_]: Concurrent: Log, K, V](conn: Fs2RedisMasterSlaveConnection[K, V]): F[RedisCommands[F, K, V]] =
+  def masterSlave[F[_]: Concurrent: Logger, K, V](
+      conn: Fs2RedisMasterSlaveConnection[K, V]
+  ): F[RedisCommands[F, K, V]] =
     new Fs2Redis[F, K, V](new Fs2RedisStatefulConnection(conn.underlying)).asInstanceOf[RedisCommands[F, K, V]].pure[F]
 
 }

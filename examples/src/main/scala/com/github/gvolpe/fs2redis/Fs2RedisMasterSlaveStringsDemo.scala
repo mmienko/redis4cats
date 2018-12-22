@@ -16,18 +16,19 @@
 
 package com.github.gvolpe.fs2redis
 
-import cats.effect.{ ExitCode, IO, IOApp, Resource }
+import cats.effect._
 import cats.syntax.all._
 import com.github.gvolpe.fs2redis.connection.Fs2RedisMasterSlave
 import com.github.gvolpe.fs2redis.domain.Fs2RedisMasterSlaveConnection
 import com.github.gvolpe.fs2redis.interpreter.Fs2Redis
+import io.chrisdavenport.log4cats.slf4j.Slf4jLogger
 import io.lettuce.core.ReadFrom
 
 object Fs2RedisMasterSlaveStringsDemo extends IOApp {
 
   import Demo._
 
-  override def run(args: List[String]): IO[ExitCode] = {
+  val program: IO[Unit] = Slf4jLogger.create[IO].flatMap { implicit logger =>
     val usernameKey = "test"
 
     val showResult: Option[String] => IO[Unit] =
@@ -52,7 +53,10 @@ object Fs2RedisMasterSlaveStringsDemo extends IOApp {
           _ <- showResult(z)
         } yield ()
       }
-    } *> IO.pure(ExitCode.Success)
+    }
   }
+
+  override def run(args: List[String]): IO[ExitCode] =
+    program.as(ExitCode.Success)
 
 }

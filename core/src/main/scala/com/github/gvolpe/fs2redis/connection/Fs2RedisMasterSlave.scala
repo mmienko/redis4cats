@@ -19,7 +19,8 @@ package com.github.gvolpe.fs2redis.connection
 import cats.effect.{ Concurrent, Resource, Sync }
 import cats.syntax.all._
 import com.github.gvolpe.fs2redis.domain._
-import com.github.gvolpe.fs2redis.effect.{ JRFuture, Log }
+import com.github.gvolpe.fs2redis.effect.JRFuture
+import io.chrisdavenport.log4cats.Logger
 import io.lettuce.core.masterslave.{ MasterSlave, StatefulRedisMasterSlaveConnection }
 import io.lettuce.core.{ ReadFrom, RedisURI }
 
@@ -27,7 +28,7 @@ import scala.collection.JavaConverters._
 
 object Fs2RedisMasterSlave {
 
-  private[fs2redis] def acquireAndRelease[F[_]: Concurrent: Log, K, V](
+  private[fs2redis] def acquireAndRelease[F[_]: Concurrent: Logger, K, V](
       client: Fs2RedisClient,
       codec: Fs2RedisCodec[K, V],
       readFrom: Option[ReadFrom],
@@ -47,13 +48,13 @@ object Fs2RedisMasterSlave {
     }
 
     val release: Fs2RedisMasterSlaveConnection[K, V] => F[Unit] = connection =>
-      Log[F].info(s"Releasing Redis Master/Slave connection: ${connection.underlying}") *>
+      Logger[F].info(s"Releasing Redis Master/Slave connection: ${connection.underlying}") *>
         JRFuture.fromCompletableFuture(Sync[F].delay(connection.underlying.closeAsync())).void
 
     (acquire, release)
   }
 
-  def apply[F[_]: Concurrent: Log, K, V](codec: Fs2RedisCodec[K, V], uris: RedisURI*)(
+  def apply[F[_]: Concurrent: Logger, K, V](codec: Fs2RedisCodec[K, V], uris: RedisURI*)(
       readFrom: Option[ReadFrom] = None
   ): Resource[F, Fs2RedisMasterSlaveConnection[K, V]] = {
     val (acquireClient, releaseClient) = Fs2RedisClient.acquireAndReleaseWithoutUri[F]

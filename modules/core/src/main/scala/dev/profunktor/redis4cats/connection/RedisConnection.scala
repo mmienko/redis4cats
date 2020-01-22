@@ -25,17 +25,24 @@ import io.lettuce.core.api.async.RedisAsyncCommands
 import io.lettuce.core.cluster.api.StatefulRedisClusterConnection
 import io.lettuce.core.cluster.api.async.RedisClusterAsyncCommands
 import scala.util.control.NoStackTrace
+import cats.~>
 
 case class OperationNotSupported(value: String) extends NoStackTrace {
   override def toString(): String = s"OperationNotSupported($value)"
 }
 
-private[redis4cats] trait RedisConnection[F[_], K, V] {
+private[redis4cats] trait RedisConnection[F[_], K, V] { self =>
   def async: F[RedisAsyncCommands[K, V]]
   def clusterAsync: F[RedisClusterAsyncCommands[K, V]]
   def close: F[Unit]
   def byNode(nodeId: NodeId): F[RedisAsyncCommands[K, V]]
-  def liftK[G[_]: Concurrent: ContextShift]: RedisConnection[G, K, V]
+
+  def mapK[G[_]](fk: F ~> G): RedisConnection[G, K, V] = new RedisConnection[G, K, V] {
+    def async: G[RedisAsyncCommands[K,V]] = fk(self.async)
+    def clusterAsync: G[RedisClusterAsyncCommands[K,V]] = fk(self.clusterAsync)
+    def close: G[Unit] = fk(self.close)
+    def byNode(nodeId: NodeId): G[RedisAsyncCommands[K,V]] = fk(self.byNode(nodeId))
+  }
 }
 
 private[redis4cats] class RedisStatefulConnection[F[_]: Concurrent: ContextShift, K, V](
@@ -47,7 +54,6 @@ private[redis4cats] class RedisStatefulConnection[F[_]: Concurrent: ContextShift
   def close: F[Unit] = JRFuture.fromCompletableFuture(F.delay(conn.closeAsync())).void
   def byNode(nodeId: NodeId): F[RedisAsyncCommands[K, V]] =
     F.raiseError(OperationNotSupported("Running in a single node"))
-  def liftK[G[_]: Concurrent: ContextShift]: RedisConnection[G, K, V] = new RedisStatefulConnection[G, K, V](conn)
 }
 
 private[redis4cats] class RedisStatefulClusterConnection[F[_]: Concurrent: ContextShift, K, V](
@@ -64,6 +70,4 @@ private[redis4cats] class RedisStatefulClusterConnection[F[_]: Concurrent: Conte
     JRFuture.fromCompletableFuture(F.delay(conn.getConnectionAsync(nodeId.value))).flatMap { stateful =>
       F.delay(stateful.async())
     }
-  def liftK[G[_]: Concurrent: ContextShift]: RedisConnection[G, K, V] =
-    new RedisStatefulClusterConnection[G, K, V](conn)
 }

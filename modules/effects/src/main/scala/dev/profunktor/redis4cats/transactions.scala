@@ -23,6 +23,7 @@ import cats.implicits._
 import dev.profunktor.redis4cats.algebra._
 import dev.profunktor.redis4cats.effect.Log
 import dev.profunktor.redis4cats.hlist._
+import dev.profunktor.redis4cats.JavaConversions._
 import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 
@@ -46,52 +47,49 @@ object transactions {
       */
     def exec[T <: HList, R <: HList](commands: T)(implicit w: Witness.Aux[T, R]): F[R] =
       Deferred[F, Either[Throwable, w.R]].flatMap { promise =>
-        // Forks every command in order
-        def runner[H <: HList, G <: HList](ys: H, res: G): F[Any] =
+        // Runs every command in order, discarding the enqueing result
+        def runner[H <: HList](ys: H): F[Unit] =
           ys match {
-            case HNil                           => F.pure(res)
-            case HCons((h: F[_] @unchecked), t) => h.start.flatMap(fb => runner(t, fb :: res))
+            case HNil                           => F.unit
+            case HCons((h: F[_] @unchecked), t) => h.void >> runner(t)
           }
 
-        // Joins or cancel fibers correspondent to previous executed commands
-        def joinOrCancel[H <: HList, G <: HList](ys: H, res: G)(isJoin: Boolean): F[Any] =
-          ys match {
-            case HNil => F.pure(res)
-            case HCons((h: Fiber[F, Any] @unchecked), t) if isJoin =>
-              F.info(">>> Got fiber") >>
-                  h.join.flatMap(x => F.info(s">>> Content: $x") >> joinOrCancel(t, x :: res)(isJoin))
-            case HCons((h: Fiber[F, Any] @unchecked), t) =>
-              h.cancel.flatMap(x => joinOrCancel(t, x :: res)(isJoin))
-            case HCons(h, t) =>
-              F.error(s">>> Unexpected cons: ${h.toString}") >> joinOrCancel(t, res)(isJoin)
+        // FIXME: atm we have no way to know what's the type we should return.
+        // Sometimes we may get a Long, so should we return Long or Option[Long]?
+        // That behavior is very specific to each command. Same with the ones that
+        // return something like Option[FiniteDuration]
+        def toHList(list: List[Any]): HList =
+          list match {
+            case Nil => HNil
+            case (x :: xs) =>
+              if (x.isInstanceOf[String])
+                Option(x) :: toHList(xs)
+              else
+                x :: toHList(xs)
           }
-
-        def cancelFibers(fibs: HList, err: Throwable = TransactionAborted): F[Unit] =
-          joinOrCancel(fibs.reverse, HNil)(false).void >> promise.complete(err.asLeft)
 
         val tx =
-          Resource.makeCase(cmd.multi >> runner(commands, HNil)) {
-            case ((fibs: HList), ExitCase.Completed) =>
+          Resource.makeCase(cmd.multi) {
+            case (_, ExitCase.Completed) =>
               for {
                 _ <- F.info("Transaction completed")
-                _ <- cmd.exec.handleErrorWith(e => cancelFibers(fibs.reverse, e) >> F.raiseError(e))
-                tr <- joinOrCancel(fibs.reverse, HNil)(true)
+                tr <- cmd.exec.map(_.iterator().asScala.toList)
                 // Casting here is fine since we have a `Witness` that proves this true
-                res = tr.asInstanceOf[HList].reverse.asInstanceOf[w.R]
+                res = toHList(tr).asInstanceOf[w.R]
                 _ <- promise.complete(res.asRight)
               } yield ()
-            case ((fibs: HList), ExitCase.Error(e)) =>
+            case (_, ExitCase.Error(e)) =>
               F.error(s"Transaction failed: ${e.getMessage}") >>
-                  cmd.discard.guarantee(cancelFibers(fibs))
-            case ((fibs: HList), ExitCase.Canceled) =>
+                  cmd.discard >> promise.complete(TransactionAborted.asLeft)
+            case (_, ExitCase.Canceled) =>
               F.error("Transaction canceled") >>
-                  cmd.discard.guarantee(cancelFibers(fibs))
+                  cmd.discard >> promise.complete(TransactionAborted.asLeft)
             case _ =>
               F.error("Kernel panic: the impossible happened!")
           }
 
         F.info("Transaction started") >>
-          (tx.use(_ => F.unit) >> promise.get.rethrow).timeout(3.seconds)
+          (tx.use(_ => runner(commands)) >> promise.get.rethrow).timeout(3.seconds)
       }
 
   }

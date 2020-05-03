@@ -16,11 +16,13 @@
 
 package dev.profunktor.redis4cats.algebra
 
+import io.lettuce.core.TransactionResult
+
 trait TransactionalCommands[F[_], K] extends Transaction[F] with Watcher[F, K]
 
 trait Transaction[F[_]] {
   def multi: F[Unit]
-  def exec: F[Unit]
+  def exec: F[TransactionResult]
   def discard: F[Unit]
 }
 
